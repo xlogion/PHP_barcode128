@@ -47,8 +47,11 @@
 # `PHP barcode 128` 参数说明
 
 - ## 输入格式
+	
 	`$font = new bcode128($barcode_string,$options);`
+	
 	barcode_string 为生成的条码原始数据
+	
 	options	一个参数的数组，支持以下列出的所有类型
 
 ----------
