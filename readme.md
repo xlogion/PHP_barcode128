@@ -6,10 +6,15 @@
     PHP barcode 128
     
     是一个支持自定义宽度和高度的128条码类
+
     ```
     
+    ![](https://raw.githubusercontent.com/xlogion/PHP_barcode128/master/out_file/PHP_barcode128.png)
+
+
 	
 - ## 使用示例
+	
 	```
 	require_once('class/bcode128.class.php');
 
