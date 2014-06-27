@@ -7,6 +7,7 @@ class bcode128 {
     const K_STOP = 106;
 
 	protected $type="auto"; //编码类型
+	protected $dpi=72; //编码类型
 	protected $string; //编码文本
 	protected $keysA, $keysB, $keysC, $bcode; 
 	protected $width=200;
@@ -29,7 +30,7 @@ class bcode128 {
 	protected $bottom_font='font/Arial.ttf';
 	protected $bottom_color='';
 
-	protected $allow_options=array('type','width','height','margin','img_type','color','out_file','top_text','top_size','top_margin','top_font','top_color','bottom_text','bottom_size','bottom_margin','bottom_font','bottom_color'); 
+	protected $allow_options=array('type','dpi','width','height','margin','img_type','color','out_file','top_text','top_size','top_margin','top_font','top_color','bottom_text','bottom_size','bottom_margin','bottom_font','bottom_color'); 
 
     function __construct($string = NULL,$options=array()) {
 		$this->initialize_code(); //初始化字符编码
@@ -161,14 +162,6 @@ class bcode128 {
 				ImageTTFText($img,$this->top_size,0,$t_x,$t_y,$top_color,$this->top_font,$v);
 				$t_x=$t_x+$t_m_width;
 			}
-			/*
-			$t=str_split($this->top_text);
-			$t_x=$this->margin_left; 
-			foreach ($t as $v) {
-				ImageTTFText($img,$this->top_size,0,$t_x,$t_y,$color,$this->top_font,$v);
-				$t_x=$t_x+$t_m_width;
-			}
-			*/
 		}
 
 
@@ -218,26 +211,211 @@ class bcode128 {
 
 		}
 
+		$this->dpi<72 && $this->dpi=72;
+		$this->dpi>300 && $this->dpi=300;
+
 		switch ($this->img_type) {
 			case 'png':
-			  $this->out_file==NULL && header('Content-Type: image/png');
-			  imagepng($img,$this->out_file);
+			  //$this->out_file==NULL && header('Content-Type: image/png');
+			  //imagepng($img,$this->out_file);
+			    ob_start();
+				imagepng($img);
+				$bin = ob_get_contents();
+				ob_end_clean();
+
+				 $this->setdpipng($bin);
+				
+				if (empty($this->out_file)) {
+					header('Content-Type: image/png');
+					echo $bin;
+				} else {
+						file_put_contents($this->out_file, $bin);
+				}
+
 			  break;
 			case 'jpg':
-			  $this->out_file==NULL && header('Content-Type: image/jpeg');
-			  imagejpeg($img,$this->out_file, 100);
+			  //$this->out_file==NULL && header('Content-Type: image/jpeg');
+			  //imagejpeg($img,$this->out_file, 100);
+			  ob_start();
+			  imagejpeg($img, null,100);
+			  $bin = ob_get_contents();
+			  ob_end_clean();
+			  
+			  $this->setdpijpg($bin);
+
+			  if (empty($this->out_file)) {
+					header('Content-Type: image/jpeg');
+					echo $bin;
+			  } else {
+					file_put_contents($this->out_file, $bin);
+			  }
+
 			  break;
 			case 'gif':
 			  $this->out_file==NULL && header('Content-Type: image/gif');
 			  imagegif($img,$this->out_file);
 			  break;
-			default:
-			  $this->out_file==NULL && header('Content-Type: image/png');
-			  imagepng($img,$this->out_file);
 		}
 		imagedestroy($img);
 		return true;
 	}
+
+	private function setdpijpg(&$bin) {
+        $this->SetJPGDPI($bin);
+        $this->SetJPGC($bin);
+    }
+
+	private function setdpipng(&$bin) {
+        if (strcmp(substr($bin, 0, 8), pack('H*', '89504E470D0A1A0A')) === 0) {
+            $chunks = $this->detectChunks($bin);
+
+            $this->SetPNGDPI($bin, $chunks);
+            $this->SetPNGC($bin, $chunks);
+        }
+    }
+
+	//thanks Barcode Generator http://www.barcodephp.com/ 
+	 private function SetPNGDPI(&$bin, &$chunks) {
+        if ($this->dpi !== null) {
+            $meters = (int)($this->dpi * 39.37007874);
+
+            $found = -1;
+            $c = count($chunks);
+            for($i = 0; $i < $c; $i++) {
+                // We already have a pHYs
+                if($chunks[$i]['chunk'] === 'pHYs') {
+                    $found = $i;
+                    break;
+                }
+            }
+
+            $data = 'pHYs' . pack('NNC', $meters, $meters, 0x01);
+            $crc = self::crc($data, 13);
+            $cr = pack('Na13N', 9, $data, $crc);
+
+            // We didn't have a pHYs
+            if($found == -1) {
+                // Don't do anything if we have a bad PNG
+                if($c >= 2 && $chunk[0]['chunk'] = 'IHDR') {
+                    array_splice($chunks, 1, 0, array(array('offset'=>33, 'size'=>9, 'chunk'=>'pHYs')));
+
+                    // Push the data
+                    for($i = 2; $i < $c; $i++) {
+                        $chunks[$i]['offset'] += 21;
+                    }
+
+                    $firstPart = substr($bin, 0, 33);
+                    $secondPart = substr($bin, 33);
+                    $bin = $firstPart;
+                    $bin .= $cr;
+                    $bin .= $secondPart;
+                }
+            } else {
+                $bin = substr_replace($bin, $cr, $chunks[$i]['offset'], 21);
+            }
+        }
+    }
+	
+	private static $crc_table = array();
+    private static $crc_table_computed = false;
+
+	private static function make_crc_table() {
+        for ($n = 0; $n < 256; $n++) {
+            $c = $n;
+            for ($k = 0; $k < 8; $k++) {
+                if (($c & 1) == 1) {
+                    $c = 0xedb88320 ^ (self::SHR($c, 1));
+                } else {
+                    $c = self::SHR($c, 1);
+                }
+            }
+            self::$crc_table[$n] = $c;
+        }
+
+        self::$crc_table_computed = true;
+    }
+
+    private static function SHR($x, $n) {
+        $mask = 0x40000000;
+
+        if ($x < 0) {
+            $x &= 0x7FFFFFFF;
+            $mask = $mask >> ($n - 1);
+            return ($x >> $n) | $mask;
+        }
+
+        return (int)$x >> (int)$n;
+    }
+
+	private static function update_crc($crc, $buf, $len) {
+        $c = $crc;
+
+        if (!self::$crc_table_computed) {
+            self::make_crc_table();
+        }
+
+        for ($n = 0; $n < $len; $n++) {
+            $c = self::$crc_table[($c ^ ord($buf[$n])) & 0xff] ^ (self::SHR($c, 8));
+        }
+
+        return $c;
+    }
+
+    private static function crc($data, $len) {
+        return self::update_crc(-1, $data, $len) ^ -1;
+    }
+
+    private function SetPNGC(&$bin, &$chunks) {
+        if (count($chunks) >= 2 && $chunk[0]['chunk'] = 'IHDR') {
+            $firstPart = substr($bin, 0, 33);
+            $secondPart = substr($bin, 33);
+            $cr = pack('H*', '0000004C74455874436F707972696768740047656E657261746564207769746820426172636F64652047656E657261746F7220666F722050485020687474703A2F2F7777772E626172636F64657068702E636F6D597F70B8');
+            $bin = $firstPart;
+            $bin .= $cr;
+            $bin .= $secondPart;
+        }
+        
+        // Chunks is dirty!! But we are done.
+    }
+
+	 private function detectChunks($bin) {
+        $data = substr($bin, 8);
+        $chunks = array();
+        $c = strlen($data);
+        
+        $offset = 0;
+        while ($offset < $c) {
+            $packed = unpack('Nsize/a4chunk', $data);
+            $size = $packed['size'];
+            $chunk = $packed['chunk'];
+
+            $chunks[] = array('offset'=>$offset + 8, 'size'=>$size, 'chunk'=>$chunk);
+            $jump = $size + 12;
+            $offset += $jump;
+            $data = substr($data, $jump);
+        }
+        
+        return $chunks;
+    }
+	
+	
+	private function SetJPGDPI(&$bin) {
+        if ($this->dpi !== null) {
+            $bin = substr_replace($bin, pack("Cnn", 0x01, $this->dpi, $this->dpi), 13, 5);
+        }
+    }
+
+    private function SetJPGC(&$bin) {
+        if(strcmp(substr($bin, 0, 4), pack('H*', 'FFD8FFE0')) === 0) {
+            $offset = 4 + (ord($bin[4]) << 8 | ord($bin[5]));
+            $firstPart = substr($bin, 0, $offset);
+            $secondPart = substr($bin, $offset);
+            $cr = pack('H*', 'FFFE004447656E657261746564207769746820426172636F64652047656E657261746F7220666F722050485020687474703A2F2F7777772E626172636F64657068702E636F6D');
+            $bin = $firstPart;
+            $bin .= $cr;
+            $bin .= $secondPart;
+        }
+    }
 
 	private function hex2rgb( $colour ) {
 		if ( $colour[0] == '#' ) {
